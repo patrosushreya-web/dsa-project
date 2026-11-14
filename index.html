@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f7f1">
+  <meta name="description" content="An interactive campus route planner using Dijkstra's algorithm and breadth-first search.">
+  <title>Campus Navigator | PS No. 82</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#top" aria-label="Campus Navigator home">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40"><path d="M7 30 18 9l5 10 4-7 7 18H7Z"/><path d="m14 30 6-11 6 11M22 30l5-10 4 10"/></svg>
+        </span>
+        <span><strong>Campus Navigator</strong><small>PS No. 82 · Interactive map</small></span>
+      </a>
+      <div class="topbar-right">
+        <span class="offline-indicator"><i></i> Map available offline</span>
+        <span class="campus-avatar" aria-label="Campus map">CN</span>
+      </div>
+    </header>
+
+    <main id="top" class="content">
+      <section class="intro-row" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">YOUR CAMPUS, AT A GLANCE</p>
+          <h1 id="page-title">Find your way around</h1>
+          <p class="intro-copy">Choose two places and compare the quickest walk with the route that has the fewest stops.</p>
+        </div>
+        <div class="map-key" aria-label="Map key">
+          <span><i class="key-dot key-origin"></i> Start</span>
+          <span><i class="key-dot key-destination"></i> Destination</span>
+          <span><i class="key-line"></i> Selected route</span>
+        </div>
+      </section>
+
+      <section class="workspace" aria-label="Campus route planner">
+        <aside class="planner-card">
+          <div class="card-heading">
+            <div class="heading-icon" aria-hidden="true">↗</div>
+            <div><h2>Plan a route</h2><p>Pick your start and destination</p></div>
+          </div>
+
+          <div class="mode-switch" role="group" aria-label="Route preference">
+            <button class="mode-button active" type="button" data-mode="distance" aria-pressed="true">
+              <span class="mode-symbol">↔</span><span><b>Shortest</b><small>By distance</small></span>
+            </button>
+            <button class="mode-button" type="button" data-mode="stops" aria-pressed="false">
+              <span class="mode-symbol">⌖</span><span><b>Fewest</b><small>Stops</small></span>
+            </button>
+          </div>
+
+          <form id="route-form" class="route-form">
+            <label class="field-label" for="from-location">Starting point</label>
+            <div class="location-field">
+              <span class="field-marker marker-start" aria-hidden="true"></span>
+              <input id="from-location" name="from" list="location-options" autocomplete="off" value="Gate" required>
+            </div>
+            <div class="connector" aria-hidden="true"><span></span></div>
+            <label class="field-label" for="to-location">Destination</label>
+            <div class="location-field">
+              <span class="field-marker marker-end" aria-hidden="true"></span>
+              <input id="to-location" name="to" list="location-options" autocomplete="off" value="Canteen" required>
+            </div>
+            <datalist id="location-options"></datalist>
+            <button class="find-button" type="submit">Find route <span aria-hidden="true">→</span></button>
+          </form>
+
+          <div id="route-result" class="route-result" aria-live="polite" aria-atomic="true">
+            <div class="result-topline"><span id="result-label">SHORTEST DISTANCE</span><span class="result-icon" aria-hidden="true">✓</span></div>
+            <div class="result-metrics"><strong id="result-distance">150 <small>m</small></strong><span id="result-stops">3 segments</span></div>
+            <div class="result-divider"></div>
+            <p class="route-label">YOUR ROUTE</p>
+            <ol id="route-list" class="route-list"></ol>
+            <p id="route-message" class="route-message" role="status"></p>
+          </div>
+
+          <details class="manage-map">
+            <summary><span class="plus-icon">+</span> Edit this map</summary>
+            <div class="manage-content">
+              <form id="add-location-form" class="mini-form">
+                <label for="new-location">Add a location</label>
+                <div class="inline-fields"><input id="new-location" name="location" placeholder="e.g. Sports Hall" required><button type="submit" aria-label="Add location">Add</button></div>
+              </form>
+              <form id="add-path-form" class="mini-form">
+                <label for="path-from">Add a two-way path</label>
+                <div class="path-fields">
+                  <input id="path-from" name="from" list="location-options" placeholder="From" required>
+                  <input id="path-to" name="to" list="location-options" placeholder="To" required>
+                  <input id="path-distance" name="distance" type="number" step="1" placeholder="Metres" required>
+                </div>
+                <button type="submit" class="add-path-button">Add path</button>
+              </form>
+              <p id="edit-message" class="edit-message" aria-live="polite"></p>
+            </div>
+          </details>
+        </aside>
+
+        <section class="map-card" aria-labelledby="map-heading">
+          <div class="map-toolbar">
+            <div><div class="map-title-line"><span class="map-pin" aria-hidden="true">⌖</span><h2 id="map-heading">Campus grounds</h2></div><p id="map-subtitle">4 places <span>·</span> 5 walking paths</p></div>
+            <span class="illustrative-badge"><i></i> CAMPUS MAP</span>
+          </div>
+          <div class="map-viewport">
+            <svg id="campus-map" class="campus-map" viewBox="0 0 920 610" role="img" aria-labelledby="svg-title svg-description" preserveAspectRatio="xMidYMid meet">
+              <title id="svg-title">Illustrated campus map</title>
+              <desc id="svg-description">A top-down campus map showing campus buildings, green spaces, walking paths, and route distances.</desc>
+              <defs>
+                <pattern id="grass-grain" width="28" height="28" patternUnits="userSpaceOnUse">
+                  <circle cx="5" cy="9" r="1" fill="#b9ce9f" opacity=".35"/><circle cx="22" cy="20" r="1.2" fill="#b9ce9f" opacity=".3"/>
+                </pattern>
+                <pattern id="paving" width="14" height="14" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                  <rect width="14" height="14" fill="#e6e3d8"/><path d="M0 0H14" stroke="#d8d5ca" stroke-width="1"/>
+                </pattern>
+                <filter id="soft-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#26372a" flood-opacity=".18"/></filter>
+                <filter id="route-glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="5" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+              </defs>
+              <g id="map-base" aria-hidden="true">
+                <rect x="0" y="0" width="920" height="610" fill="#e9eedc"/>
+                <rect x="0" y="0" width="920" height="610" fill="url(#grass-grain)"/>
+                <path d="M-20 493 C122 458 212 523 356 488 S621 439 941 477" fill="none" stroke="#c5c8bd" stroke-width="40"/>
+                <path d="M-20 493 C122 458 212 523 356 488 S621 439 941 477" fill="none" stroke="#faf9f2" stroke-width="32"/>
+                <path d="M63 42 C110 90 115 144 95 188 S63 280 100 326" fill="none" stroke="#c3c6ba" stroke-width="30"/>
+                <path d="M63 42 C110 90 115 144 95 188 S63 280 100 326" fill="none" stroke="#faf9f2" stroke-width="23"/>
+                <path d="M778 -20 C747 72 788 160 755 244 S723 385 771 458" fill="none" stroke="#c3c6ba" stroke-width="28"/>
+                <path d="M778 -20 C747 72 788 160 755 244 S723 385 771 458" fill="none" stroke="#faf9f2" stroke-width="21"/>
+                <path d="M158 306 C259 267 334 276 409 307 S564 364 670 326" fill="none" stroke="#c4c6b8" stroke-width="19"/>
+                <path d="M158 306 C259 267 334 276 409 307 S564 364 670 326" fill="none" stroke="#fbfaf2" stroke-width="13"/>
+                <path d="M170 112 C278 143 328 176 389 233" fill="none" stroke="#fffdf3" stroke-width="13" stroke-dasharray="4 5"/>
+                <path d="M551 100 C574 173 580 222 571 281" fill="none" stroke="#fffdf3" stroke-width="13" stroke-dasharray="4 5"/>
+                <path d="M440 388 C452 431 449 451 432 476" fill="none" stroke="#fffdf3" stroke-width="13" stroke-dasharray="4 5"/>
+                <path d="M167 403 C213 372 239 354 277 340" fill="none" stroke="#fffdf3" stroke-width="13" stroke-dasharray="4 5"/>
+                <path d="M596 424 C625 392 649 365 680 346" fill="none" stroke="#fffdf3" stroke-width="13" stroke-dasharray="4 5"/>
+                <path d="M186 156 C223 135 252 154 271 177 C291 201 275 230 249 236 C219 242 194 218 179 198 C166 180 169 164 186 156Z" fill="#b8d9d3" stroke="#f7f5e9" stroke-width="5"/>
+                <path d="M195 173 C218 165 238 176 249 191" fill="none" stroke="#d6ebe3" stroke-width="3"/>
+                <text x="185" y="262" class="map-feature-label">REFLECTION POND</text>
+                <path d="M338 105 C369 89 435 87 470 103 L481 158 C448 177 377 180 340 159Z" fill="#d5e3be" opacity=".88"/>
+                <path d="M517 355 C545 335 605 336 629 355 C620 387 565 403 526 390Z" fill="#d5e3be" opacity=".85"/>
+                <g class="tree" transform="translate(311 108)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(457 198)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(358 210)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(640 222)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(328 393)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(615 173)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(195 360)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(694 411)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(125 112)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="tree" transform="translate(713 128)"><circle r="12"/><circle cx="-5" cy="-4" r="7"/><circle cx="5" cy="-5" r="7"/><path d="M0 7v10"/></g>
+                <g class="parking" transform="translate(33 406)"><rect width="100" height="54" rx="5"/><path d="M8 8v19m14-19v19m14-19v19m14-19v19m14-19v19m14-19v19m14-19v19"/><text x="14" y="45">PARKING</text></g>
+                <text x="34" y="53" class="road-label">NORTH CAMPUS ROAD</text>
+                <text x="743" y="496" class="road-label" transform="rotate(-87 743 496)">EAST WALK</text>
+                <g class="compass" transform="translate(847 71)"><circle r="26"/><path d="M0-15 6 4 0 1-6 4Z"/><text x="-4" y="-31">N</text></g>
+                <g id="path-layer"></g>
+                <g id="node-layer"></g>
+                <g transform="translate(790 545)" class="scale"><rect x="0" y="0" width="91" height="22" rx="7"/><text x="10" y="14">NOT TO SCALE</text></g>
+              </g>
+            </svg>
+            <div class="map-zoom" aria-label="Map view controls"><button type="button" id="zoom-in" aria-label="Zoom in">+</button><button type="button" id="zoom-out" aria-label="Zoom out">−</button></div>
+            <div class="north-chip"><span>↑</span> North</div>
+          </div>
+          <div class="map-footer"><span><i class="footer-dot"></i> <span id="map-status">Showing shortest walking route</span></span><span class="map-scale-label">Illustrative · not to scale</span></div>
+        </section>
+      </section>
+
+      <section class="bottom-row" aria-label="Map details">
+        <div class="info-card"><span class="info-icon">◎</span><div><strong id="place-count">4 locations</strong><span>Campus places</span></div></div>
+        <div class="info-card"><span class="info-icon path-icon">⌁</span><div><strong id="path-count">5 two-way paths</strong><span>Connected routes</span></div></div>
+        <p class="method-note"><b>How routes are found</b><br>Dijkstra minimizes walking distance. BFS minimizes the number of path segments.</p>
+      </section>
+      <footer class="page-footer">PS No. 82 · Campus Navigation App <span>Built with HTML, CSS and JavaScript</span></footer>
+    </main>
+  </div>
+</body>
+</html>
