@@ -273,11 +273,11 @@ function drawNode(layer, vertex) {
   group.append(building);
 
   const labelWidth = Math.max(57, Math.min(128, name.length * 7 + 21));
-  group.append(svgElement("rect", { class: "building-label-bg", x: -labelWidth / 2, y: -1, width: labelWidth, height: 22, rx: 7 }));
-  const label = svgElement("text", { class: "building-label", x: 0, y: 10 });
+  group.append(svgElement("rect", { class: "building-label-bg", x: -labelWidth / 2, y: 15, width: labelWidth, height: 21, rx: 7 }));
+  const label = svgElement("text", { class: "building-label", x: 0, y: 26 });
   label.textContent = name;
   group.append(label);
-  const caption = svgElement("text", { class: "building-caption", x: 0, y: 34 });
+  const caption = svgElement("text", { class: "building-caption", x: 0, y: 49 });
   caption.textContent = facilityKind(name);
   group.append(caption);
   group.append(svgElement("circle", { class: "node-shell", cx: 0, cy: 0, r: 12 }));
