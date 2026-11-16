@@ -1,9 +1,15 @@
 "use strict";
 
-// Campus graph: each adjacency-list entry stores a neighboring vertex and its distance.
-const locations = [];
-const locationIndex = new Map();
-const adjacencyList = [];
+// The Java server owns the graph and both route algorithms. This file renders its data
+// and sends route and map-edit requests to the local Java API.
+let locations = [];
+let paths = [];
+let locationIndex = new Map();
+let activeMode = "distance";
+let activeRoute = null;
+let zoom = 1;
+let routeRequestId = 0;
+
 const defaultPositions = {
   Gate: { x: 137, y: 453 },
   Admin: { x: 395, y: 219 },
@@ -23,162 +29,98 @@ const routeForm = document.querySelector("#route-form");
 const fromInput = document.querySelector("#from-location");
 const toInput = document.querySelector("#to-location");
 const mapSvg = document.querySelector("#campus-map");
-let activeMode = "distance";
-let activeRoute = null;
-let zoom = 1;
 
 function normalize(name) {
   return String(name ?? "").trim().toLocaleLowerCase();
 }
 
-function addLocation(name) {
-  const displayName = String(name ?? "").trim();
-  const key = normalize(displayName);
-  if (!key) return { ok: false, message: "Enter a location name." };
-  if (locationIndex.has(key)) return { ok: false, message: `${displayName} is already on the map.` };
+async function requestJson(endpoint, payload) {
+  let response;
+  try {
+    response = await fetch(endpoint, payload === undefined ? { cache: "no-store" } : {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      cache: "no-store"
+    });
+  } catch {
+    throw new Error("Java server is not reachable. Start it with java CampusNavigationApp --server.");
+  }
 
-  const vertex = locations.length;
-  locations.push(displayName);
-  locationIndex.set(key, vertex);
-  adjacencyList.push([]);
-  return { ok: true, vertex };
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("Java server returned an unreadable response.");
+  }
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.message || `Java server returned HTTP ${response.status}.`);
+  }
+  return data;
 }
 
-function addPath(fromName, toName, distance) {
-  const from = locationIndex.get(normalize(fromName));
-  const to = locationIndex.get(normalize(toName));
-  if (from === undefined) return { ok: false, message: `Location ${String(fromName).trim()} not found.` };
-  if (to === undefined) return { ok: false, message: `Location ${String(toName).trim()} not found.` };
-  if (from === to) return { ok: false, message: "Choose two different locations for a path." };
-  if (!Number.isInteger(distance) || distance < 0) return { ok: false, message: "Distance must be a non-negative whole number." };
-  if (adjacencyList[from].some(edge => edge.to === to)) {
-    return { ok: false, message: "A path between these places already exists." };
-  }
-
-  adjacencyList[from].push({ to, distance });
-  adjacencyList[to].push({ to: from, distance });
-  return { ok: true };
+function setServerStatus(connected) {
+  const indicator = document.querySelector(".offline-indicator");
+  indicator.classList.toggle("disconnected", !connected);
+  document.querySelector("#server-status").textContent = connected
+    ? "Java server connected"
+    : "Java server disconnected";
 }
 
-function dijkstra(source, destination) {
-  const count = locations.length;
-  const distances = Array(count).fill(Infinity);
-  const parent = Array(count).fill(-1);
-  const settled = Array(count).fill(false);
-  distances[source] = 0;
-
-  for (let step = 0; step < count; step += 1) {
-    let current = -1;
-    for (let vertex = 0; vertex < count; vertex += 1) {
-      if (!settled[vertex] && (current === -1 || distances[vertex] < distances[current])) {
-        current = vertex;
-      }
-    }
-    if (current === -1 || distances[current] === Infinity) break;
-    if (current === destination) break;
-
-    settled[current] = true;
-    for (const edge of adjacencyList[current]) {
-      const candidate = distances[current] + edge.distance;
-      if (candidate < distances[edge.to]) {
-        distances[edge.to] = candidate;
-        parent[edge.to] = current;
-      }
-    }
-  }
-
-  if (distances[destination] === Infinity) return null;
-  const path = reconstructPath(source, destination, parent);
-  return { path, distance: distances[destination], stops: Math.max(0, path.length - 1) };
-}
-
-function breadthFirstSearch(source, destination) {
-  const visited = Array(locations.length).fill(false);
-  const parent = Array(locations.length).fill(-1);
-  const parentDistance = Array(locations.length).fill(0);
-  const queue = [source];
-  let head = 0;
-  visited[source] = true;
-
-  while (head < queue.length) {
-    const current = queue[head++];
-    if (current === destination) break;
-    for (const edge of adjacencyList[current]) {
-      if (!visited[edge.to]) {
-        visited[edge.to] = true;
-        parent[edge.to] = current;
-        parentDistance[edge.to] = edge.distance;
-        queue.push(edge.to);
-      }
-    }
-  }
-
-  if (!visited[destination]) return null;
-  const path = reconstructPath(source, destination, parent);
-  const distance = path.slice(1).reduce((sum, vertex) => sum + parentDistance[vertex], 0);
-  return { path, distance, stops: Math.max(0, path.length - 1) };
-}
-
-function reconstructPath(source, destination, parent) {
-  const reverse = [];
-  let current = destination;
-  while (current !== -1) {
-    reverse.push(current);
-    if (current === source) break;
-    current = parent[current];
-  }
-  if (reverse[reverse.length - 1] !== source) return [];
-  return reverse.reverse();
-}
-
-function resolveRoute() {
-  const fromName = fromInput.value.trim();
-  const toName = toInput.value.trim();
-  const source = locationIndex.get(normalize(fromName));
-  const destination = locationIndex.get(normalize(toName));
-  if (source === undefined || destination === undefined) {
-    const unknown = source === undefined ? fromName : toName;
-    showError(`Location ${unknown || "(blank)"} not found.`);
-    activeRoute = null;
-    renderMap();
-    return;
-  }
-
-  const result = activeMode === "distance"
-    ? dijkstra(source, destination)
-    : breadthFirstSearch(source, destination);
-  if (!result) {
-    showError(`No path found between ${locations[source]} and ${locations[destination]}.`);
-    activeRoute = null;
-    renderMap();
-    return;
-  }
-
-  activeRoute = { ...result, source, destination };
-  const resultPanel = document.querySelector("#route-result");
-  resultPanel.classList.remove("has-error");
-  document.querySelector("#result-label").textContent = activeMode === "distance"
-    ? "SHORTEST DISTANCE"
-    : "FEWEST STOPS";
-  document.querySelector("#result-distance").innerHTML = `${result.distance} <small>m</small>`;
-  document.querySelector("#result-stops").textContent = `${result.stops} ${result.stops === 1 ? "segment" : "segments"}`;
-  document.querySelector("#route-message").textContent = "";
-  const routeList = document.querySelector("#route-list");
-  routeList.replaceChildren(...result.path.map(vertex => {
-    const item = document.createElement("li");
-    item.textContent = locations[vertex];
-    return item;
-  }));
-  document.querySelector("#map-status").textContent = activeMode === "distance"
-    ? "Showing shortest walking route"
-    : "Showing route with fewest stops";
+async function refreshMap() {
+  const map = await requestJson("/api/map");
+  locations = map.locations;
+  paths = map.paths;
+  locationIndex = new Map(locations.map((name, index) => [normalize(name), index]));
+  refreshLocationOptions();
   renderMap();
+}
+
+async function resolveRoute() {
+  const requestId = ++routeRequestId;
+  try {
+    const result = await requestJson("/api/route", {
+      from: fromInput.value.trim(),
+      to: toInput.value.trim(),
+      mode: activeMode
+    });
+    if (requestId !== routeRequestId) return;
+    activeRoute = result;
+    setServerStatus(true);
+    const resultPanel = document.querySelector("#route-result");
+    resultPanel.classList.remove("has-error");
+    document.querySelector("#result-label").textContent = activeMode === "distance"
+      ? "SHORTEST DISTANCE"
+      : "FEWEST STOPS";
+    document.querySelector("#result-distance").innerHTML = `${result.distance} <small>m</small>`;
+    document.querySelector("#result-stops").textContent = `${result.stops} ${result.stops === 1 ? "segment" : "segments"}`;
+    document.querySelector("#route-message").textContent = "";
+    const routeList = document.querySelector("#route-list");
+    routeList.replaceChildren(...result.path.map(name => {
+      const item = document.createElement("li");
+      item.textContent = name;
+      return item;
+    }));
+    document.querySelector("#map-status").textContent = activeMode === "distance"
+      ? "Showing shortest walking route"
+      : "Showing route with fewest stops";
+    renderMap();
+  } catch (error) {
+    if (requestId !== routeRequestId) return;
+    if (error.message.startsWith("Java server is not reachable")) setServerStatus(false);
+    showError(error.message);
+    activeRoute = null;
+    renderMap();
+  }
 }
 
 function showError(message) {
   const resultPanel = document.querySelector("#route-result");
   resultPanel.classList.add("has-error");
   document.querySelector("#result-label").textContent = "ROUTE UNAVAILABLE";
+  document.querySelector("#result-distance").textContent = "—";
+  document.querySelector("#result-stops").textContent = "";
+  document.querySelector("#route-list").replaceChildren();
   document.querySelector("#route-message").textContent = message;
   document.querySelector("#map-status").textContent = message;
 }
@@ -189,13 +131,13 @@ function svgElement(tag, attributes = {}) {
   return element;
 }
 
-function edgeKey(from, to) {
-  return [normalize(locations[from]), normalize(locations[to])].sort().join("|");
+function edgeKey(fromName, toName) {
+  return [normalize(fromName), normalize(toName)].sort().join("|");
 }
 
-function getPosition(vertex) {
-  const name = locations[vertex];
+function getPosition(name) {
   if (defaultPositions[name]) return defaultPositions[name];
+  const vertex = locationIndex.get(normalize(name)) ?? locations.length - 1;
   const extraIndex = vertex - 4;
   const angle = (-Math.PI / 2) + (extraIndex * 2.4);
   return {
@@ -214,9 +156,8 @@ function addDistancePill(layer, x, y, text, isOnRoute) {
   layer.append(group);
 }
 
-function drawEdge(layer, from, edge, routeKeys) {
-  const to = edge.to;
-  const key = edgeKey(from, to);
+function drawEdge(layer, edge, routeKeys) {
+  const key = edgeKey(edge.from, edge.to);
   const spec = defaultPaths[key];
   let pathData;
   let labelPosition;
@@ -224,8 +165,8 @@ function drawEdge(layer, from, edge, routeKeys) {
     pathData = spec.d;
     labelPosition = spec.label;
   } else {
-    const a = getPosition(from);
-    const b = getPosition(to);
+    const a = getPosition(edge.from);
+    const b = getPosition(edge.to);
     const dx = b.x - a.x;
     const dy = b.y - a.y;
     const length = Math.max(1, Math.hypot(dx, dy));
@@ -233,7 +174,10 @@ function drawEdge(layer, from, edge, routeKeys) {
     const controlX = (a.x + b.x) / 2 - (dy / length) * bend;
     const controlY = (a.y + b.y) / 2 + (dx / length) * bend;
     pathData = `M ${a.x} ${a.y} Q ${controlX} ${controlY} ${b.x} ${b.y}`;
-    labelPosition = { x: Math.round((a.x + 2 * controlX + b.x) / 4), y: Math.round((a.y + 2 * controlY + b.y) / 4) - 12 };
+    labelPosition = {
+      x: Math.round((a.x + 2 * controlX + b.x) / 4),
+      y: Math.round((a.y + 2 * controlY + b.y) / 4) - 12
+    };
   }
 
   const isRoute = routeKeys.has(key);
@@ -253,12 +197,11 @@ function facilityKind(name) {
   return kind[name] || "CAMPUS LOCATION";
 }
 
-function drawNode(layer, vertex) {
-  const name = locations[vertex];
-  const point = getPosition(vertex);
-  const isStart = activeRoute && vertex === activeRoute.source;
-  const isEnd = activeRoute && vertex === activeRoute.destination;
-  const isOnRoute = activeRoute && activeRoute.path.includes(vertex);
+function drawNode(layer, name) {
+  const point = getPosition(name);
+  const isStart = activeRoute && activeRoute.path[0] === name;
+  const isEnd = activeRoute && activeRoute.path.at(-1) === name;
+  const isOnRoute = activeRoute && activeRoute.path.includes(name);
   const className = ["node-group", isStart && "start-node", isEnd && "end-node", isOnRoute && "route-node"].filter(Boolean).join(" ");
   const group = svgElement("g", { class: className, transform: `translate(${point.x} ${point.y})` });
   const building = svgElement("g", { class: "node-building" });
@@ -297,19 +240,11 @@ function renderMap() {
     }
   }
 
-  for (let from = 0; from < adjacencyList.length; from += 1) {
-    for (const edge of adjacencyList[from]) {
-      if (from < edge.to) drawEdge(pathLayer, from, edge, routeKeys);
-    }
-  }
-  for (let vertex = 0; vertex < locations.length; vertex += 1) drawNode(nodeLayer, vertex);
-  document.querySelector("#map-subtitle").innerHTML = `${locations.length} places <span>·</span> ${countPaths()} walking paths`;
+  for (const edge of paths) drawEdge(pathLayer, edge, routeKeys);
+  for (const name of locations) drawNode(nodeLayer, name);
+  document.querySelector("#map-subtitle").innerHTML = `${locations.length} places <span>·</span> ${paths.length} walking paths`;
   document.querySelector("#place-count").textContent = `${locations.length} ${locations.length === 1 ? "location" : "locations"}`;
-  document.querySelector("#path-count").textContent = `${countPaths()} two-way ${countPaths() === 1 ? "path" : "paths"}`;
-}
-
-function countPaths() {
-  return adjacencyList.reduce((sum, edges) => sum + edges.length, 0) / 2;
+  document.querySelector("#path-count").textContent = `${paths.length} two-way ${paths.length === 1 ? "path" : "paths"}`;
 }
 
 function refreshLocationOptions() {
@@ -325,15 +260,6 @@ function setEditMessage(message, isError = false) {
   const element = document.querySelector("#edit-message");
   element.textContent = message;
   element.classList.toggle("error", isError);
-}
-
-function loadSampleMap() {
-  for (const name of ["Gate", "Library", "Admin", "Canteen"]) addLocation(name);
-  addPath("Gate", "Library", 100);
-  addPath("Gate", "Admin", 50);
-  addPath("Admin", "Library", 40);
-  addPath("Library", "Canteen", 60);
-  addPath("Admin", "Canteen", 200);
 }
 
 document.querySelectorAll(".mode-button").forEach(button => {
@@ -353,34 +279,35 @@ routeForm.addEventListener("submit", event => {
   resolveRoute();
 });
 
-document.querySelector("#add-location-form").addEventListener("submit", event => {
+document.querySelector("#add-location-form").addEventListener("submit", async event => {
   event.preventDefault();
   const input = document.querySelector("#new-location");
-  const result = addLocation(input.value);
-  if (!result.ok) {
-    setEditMessage(result.message, true);
-    return;
+  try {
+    const result = await requestJson("/api/locations", { name: input.value.trim() });
+    input.value = "";
+    await refreshMap();
+    setServerStatus(true);
+    setEditMessage(`${result.name} added to the map.`);
+  } catch (error) {
+    setEditMessage(error.message, true);
   }
-  input.value = "";
-  refreshLocationOptions();
-  setEditMessage(`${locations[result.vertex]} added to the map.`);
-  renderMap();
 });
 
-document.querySelector("#add-path-form").addEventListener("submit", event => {
+document.querySelector("#add-path-form").addEventListener("submit", async event => {
   event.preventDefault();
-  const from = document.querySelector("#path-from").value;
-  const to = document.querySelector("#path-to").value;
-  const distanceInput = document.querySelector("#path-distance");
-  const distance = Number(distanceInput.value);
-  const result = addPath(from, to, distance);
-  if (!result.ok) {
-    setEditMessage(result.message, true);
-    return;
+  const form = event.currentTarget;
+  const from = document.querySelector("#path-from").value.trim();
+  const to = document.querySelector("#path-to").value.trim();
+  const distance = Number(document.querySelector("#path-distance").value);
+  try {
+    const result = await requestJson("/api/paths", { from, to, distance });
+    form.reset();
+    await refreshMap();
+    await resolveRoute();
+    setEditMessage(result.message);
+  } catch (error) {
+    setEditMessage(error.message, true);
   }
-  event.currentTarget.reset();
-  setEditMessage(`Two-way path added: ${locations[locationIndex.get(normalize(from))]} ↔ ${locations[locationIndex.get(normalize(to))]} (${distance} m).`);
-  resolveRoute();
 });
 
 document.querySelector("#zoom-in").addEventListener("click", () => {
@@ -392,6 +319,15 @@ document.querySelector("#zoom-out").addEventListener("click", () => {
   mapSvg.style.transform = `scale(${zoom})`;
 });
 
-loadSampleMap();
-refreshLocationOptions();
-resolveRoute();
+async function startApp() {
+  try {
+    await refreshMap();
+    setServerStatus(true);
+    await resolveRoute();
+  } catch (error) {
+    setServerStatus(false);
+    showError(error.message);
+  }
+}
+
+startApp();

@@ -32,6 +32,7 @@ button { cursor: pointer; }
 .topbar-right { display: flex; gap: 20px; align-items: center; }
 .offline-indicator { display: flex; align-items: center; gap: 8px; color: #61726a; font-size: 12px; }
 .offline-indicator i, .illustrative-badge i, .footer-dot { width: 7px; height: 7px; display: inline-block; border-radius: 50%; background: #42a76d; }
+.offline-indicator.disconnected i { background: #d36959; }
 .campus-avatar { display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid #e8ece7; border-radius: 50%; background: #f8faf6; color: var(--green); font-size: 11px; font-weight: 750; }
 .content { max-width: 1500px; margin: 0 auto; padding: 38px clamp(20px, 5vw, 78px) 22px; }
 .intro-row { display: flex; align-items: end; justify-content: space-between; gap: 26px; margin-bottom: 24px; }
